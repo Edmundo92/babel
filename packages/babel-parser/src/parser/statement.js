@@ -7,6 +7,7 @@ import {
   tt,
   type TokenType,
   getExportedToken,
+  tokenIsDecorator,
 } from "../tokenizer/types";
 import ExpressionParser from "./expression";
 import { Errors, SourceTypeModuleErrors } from "./error";
@@ -241,7 +242,7 @@ export default class StatementParser extends ExpressionParser {
   // ImportDeclaration and ExportDeclaration are also handled here so we can throw recoverable errors
   // when they are not at the top level
   parseStatement(context: ?string, topLevel?: boolean): N.Statement {
-    if (this.match(tt.at)) {
+    if (tokenIsDecorator(this.state.type)) {
       this.parseDecorators(true);
     }
     return this.parseStatementContent(context, topLevel);
@@ -416,7 +417,7 @@ export default class StatementParser extends ExpressionParser {
   parseDecorators(allowExport?: boolean): void {
     const currentContextDecorators =
       this.state.decoratorStack[this.state.decoratorStack.length - 1];
-    while (this.match(tt.at)) {
+    while (tokenIsDecorator(this.state.type)) {
       const decorator = this.parseDecorator();
       currentContextDecorators.push(decorator);
     }
@@ -441,8 +442,10 @@ export default class StatementParser extends ExpressionParser {
     this.expectOnePlugin(["decorators-legacy", "decorators"]);
 
     const node = this.startNode();
+    const isAtInit = this.match(tt.atInit);
     this.next();
 
+    // Spec: https://arai-a.github.io/ecma262-compare/?pr=2417&id=sec-decorators
     if (this.hasPlugin("decorators")) {
       // Every time a decorator class expression is evaluated, a new empty array is pushed onto the stack
       // So that the decorators of any nested class expressions will be dealt with separately
@@ -463,10 +466,12 @@ export default class StatementParser extends ExpressionParser {
           node.object = expr;
           node.property = this.parseIdentifier(true);
           node.computed = false;
+
           expr = this.finishNode(node, "MemberExpression");
         }
       }
 
+      node.init = isAtInit;
       node.expression = this.parseMaybeDecoratorArguments(expr);
       this.state.decoratorStack.pop();
     } else {
@@ -1327,7 +1332,7 @@ export default class StatementParser extends ExpressionParser {
           continue;
         }
 
-        if (this.match(tt.at)) {
+        if (tokenIsDecorator(this.state.type)) {
           decorators.push(this.parseDecorator());
           continue;
         }
@@ -1993,7 +1998,7 @@ export default class StatementParser extends ExpressionParser {
       );
     } else if (this.match(tt._class)) {
       return this.parseClass(expr, true, true);
-    } else if (this.match(tt.at)) {
+    } else if (tokenIsDecorator(this.state.type)) {
       if (
         this.hasPlugin("decorators") &&
         this.getPluginOption("decorators", "decoratorsBeforeExport")
@@ -2081,7 +2086,7 @@ export default class StatementParser extends ExpressionParser {
 
   shouldParseExportDeclaration(): boolean {
     const { type } = this.state;
-    if (type === tt.at) {
+    if (tokenIsDecorator(type)) {
       this.expectOnePlugin(["decorators", "decorators-legacy"]);
       if (this.hasPlugin("decorators")) {
         if (this.getPluginOption("decorators", "decoratorsBeforeExport")) {
